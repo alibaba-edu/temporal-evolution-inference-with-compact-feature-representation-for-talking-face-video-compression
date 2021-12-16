@@ -14,7 +14,7 @@ class KPDetector(nn.Module):
     Detecting a keypoints. Return keypoint position and jacobian near each keypoint.
     """
 
-    def __init__(self, block_expansion, num_kp, num_channels, max_features,
+    def __init__(self, block_expansion, num_kp, num_channels, num_ref, max_features,
                  num_blocks, temperature, estimate_jacobian=False, scale_factor=1,
                  single_jacobian_map=False, pad=0):
         super(KPDetector, self).__init__()
@@ -62,9 +62,6 @@ class KPDetector(nn.Module):
         prediction_gdn3=self.gdn3(self.conv3(prediction_gdn2))  #torch.Size([bs, numkp, 8, 8])         
         prediction=self.gdn4(self.conv4(prediction_gdn3))  #torch.Size([bs, numkp, 4, 4])  
         
-        print("prediction")
-        print(prediction.shape)         
-
         out = {'value': prediction}  
         return out    
 

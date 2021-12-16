@@ -1,67 +1,17 @@
-import matplotlib
-matplotlib.use('Agg')
 import os, sys
 import yaml
 from argparse import ArgumentParser
-from tqdm import tqdm
-import imageio
 import numpy as np
 from skimage.transform import resize
-from skimage import img_as_ubyte
 import torch
 from sync_batchnorm import DataParallelWithCallback
-from modules.generator import OcclusionAwareGenerator
 from modules.keypoint_detector import KPDetector
-from animate import normalize_kp
-import scipy.io as io
-import json
-import numpy as np
-import cv2
-import math
-
-if sys.version_info[0] < 3:
-    raise Exception("You must use Python 3 or higher. Recommended version is Python 3.7")
-
-def RawReader_planar(FileName, ImgWidth, ImgHeight, NumFramesToBeComputed):
-    
-    f   = open(FileName, 'rb')
-    frames  = NumFramesToBeComputed
-    width   = ImgWidth
-    height  = ImgHeight
-    data = f.read()
-    f.close()
-    data = [int(x) for x in data]
-
-    data_list=[]
-    n=width*height
-    for i in range(0,len(data),n):
-        b=data[i:i+n]
-        data_list.append(b)
-    x=data_list
-
-    listR=[]
-    listG=[]
-    listB=[]
-    for k in range(0,frames):
-        R=np.array(x[3*k]).reshape((width, height)).astype(np.uint8)
-        G=np.array(x[3*k+1]).reshape((width, height)).astype(np.uint8)
-        B=np.array(x[3*k+2]).reshape((width, height)).astype(np.uint8)
-        listR.append(R)
-        listG.append(G)
-        listB.append(B)
-    return listR,listG,listB
-
-def make_animation(source,kp_source, kp_driving, generator, kp_detector, relative=True, adapt_movement_scale=True, cpu=False):
-    with torch.no_grad():
-        predictions = []
-        kp_norm = normalize_kp(kp_source=kp_source, kp_driving=kp_driving,
-                               kp_driving_initial=kp_source, use_relative_movement=relative,
-                               use_relative_jacobian=relative, adapt_movement_scale=adapt_movement_scale)
-        out = generator(source, kp_source=kp_source, kp_driving=kp_norm)
-
-        predictions.append(np.transpose(out['prediction'].data.cpu().numpy(), [0, 2, 3, 1])[0])
-    return predictions
-
+import time
+import random
+import pandas as pd
+import collections
+import itertools
+from arithmetic.value_encoder import *
 
 def load_checkpoints(config_path, checkpoint_path, cpu=False):
     with open(config_path) as f:
@@ -84,67 +34,71 @@ def load_checkpoints(config_path, checkpoint_path, cpu=False):
     
     return kp_detector
 
-def make_keypoint(source_image, kp_detector, cpu=False):
-    source = torch.tensor(source_image[np.newaxis].astype(np.float32)).permute(0, 3, 1, 2)
-    if not cpu:
-        source = source.cuda()
-    kp_source = kp_detector(source)   ####
-    return kp_source
 
 if __name__ == "__main__":
    
     parser = ArgumentParser()
+
+    frames=250
+    width=256
+    height=256
+    Qstep=16
+
+    modeldir = 'fusion'
+    config_path='../checkpoint/'+modeldir+'/vox-256.yaml'
+    checkpoint_path='../checkpoint/'+modeldir+'/00000099-checkpoint.pth.tar'
+    save_path='../experiment/kp/'
     
-    seqlist=[ "47" ]
-    for modelkp in ['spatial']:
-        config_path='/home/yixiubaixue_ex/Face/checkpoint/'+modelkp+'/vox-256.yaml'
-        checkpoint_path='/home/yixiubaixue_ex/Face/checkpoint/'+modelkp+'/00000099-checkpoint.pth.tar'
+    kp_detector = load_checkpoints(config_path, checkpoint_path, cpu=False)
+        
+    seqlist=["40", "41", "42", "43", "44", "45", "46", "47", "48", "50", "51", "52"]
+    for seq in seqlist:
+        
+        start=time.time()
+        
+        kp_path=save_path+str(seq)
+        if not os.path.exists(kp_path):
+            os.makedirs(kp_path)
 
-        spatial_size=256
-        Qstep=16
-        save_path='/home/yixiubaixue_ex/Face/experiment/kp/'
-        ori_rgb='/home/yixiubaixue_ex/Face/dataset/'
-
-        width=256
-        height=256
-        frames =100
-
-        for seq in seqlist:
-            kp_path=save_path+str(seq)
-            if not os.path.exists(kp_path):
-                os.makedirs(kp_path)
-
-            rgbname=ori_rgb+seq+'_256x256_1_8bit.rgb'          
+        original_seq='../dataset/'+seq+'_256x256_1_8bit.rgb'   
+        f_org=open(original_seq,'rb')
+        
+        kp_value_seq = []
+        for frame in range(0,frames):
+            img = np.fromfile(f_org,np.uint8,3*height*width).reshape((3,height,width))  #3xHxW RGB
+            img = resize(img, (3, height, width))    # resize to 0-1
+            img = torch.tensor(img[np.newaxis].astype(np.float32))
+            img = img.cuda()    # require GPU
             
-            listR,listG,listB=RawReader_planar(rgbname,width, height,frames)
-
-            for frame in range(0,frames):
-                source_image = cv2.merge([listR[frame],listG[frame],listB[frame]])
-
-                source_image = resize(source_image, (256, 256))[..., :3]
-
-                kp_detector = load_checkpoints(config_path, checkpoint_path, cpu=False)
-
-                kp_image = make_keypoint(source_image, kp_detector, cpu=False)
-
-                kp_value=kp_image['value']
-                #kp_value=kp_image
-
-                #print(kp_value)
-                kp_value=torch.round((kp_value+1)*Qstep/1)              
-
-                kp_value=kp_value.int()
-                #print(kp_value)
-                kp_value_list=kp_value.tolist()
-                kp_value_list=str(kp_value_list)
-                kp_value_list="".join(kp_value_list.split())
+            kp_image = kp_detector(img) 
+            kp_value = kp_image['value']
+            kp_value = torch.round((kp_value+1)*Qstep/1)              
+            kp_value = kp_value.int()
                 
-                tmp=''
-                if frame < 10:
-                    tmp+='0'
-                if frame < 100:
-                    tmp+='0'
-                tmp+=str(frame)
-
-                with open(kp_path+'/frame'+tmp+'.txt','w')as f:
-                   f.write(kp_value_list)    
+            kp_value_list = kp_value.tolist()
+            kp_value_list = str(kp_value_list)
+            kp_value_list = "".join(kp_value_list.split())
+                
+            frame_idx = str(frame).zfill(4)
+            with open(kp_path+'/frame'+frame_idx+'.txt','w')as f:
+                f.write(kp_value_list)  
+                
+            kp_value_frame=json.loads(kp_value_list)
+            kp_value_frame= eval('[%s]'%repr(kp_value_frame).replace('[', '').replace(']', ''))
+            kp_value_seq.append(kp_value_frame)
+        
+        
+        sum_bits=0
+        for frame in range(1,frames):
+            kp_difference=(np.array(kp_value_seq[frame])-np.array(kp_value_seq[frame-1])).tolist()
+            frame_idx = str(frame).zfill(4)
+            bin_file=kp_path+'/frame'+frame_idx+'.bin'
+          
+            final_encoder_expgolomb(kp_difference,bin_file)     
+     
+            bits=os.path.getsize(bin_file)*8
+            sum_bits += bits
+            
+        
+        end=time.time()
+        print("Extracting kp success. Time is %.4fs. Key points coding %d bits." %(end-start, sum_bits))

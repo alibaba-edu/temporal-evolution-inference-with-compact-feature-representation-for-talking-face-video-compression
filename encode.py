@@ -1,28 +1,46 @@
-# -*- coding: utf-8 -*-
-import matplotlib
-matplotlib.use('Agg')
 import os, sys
 import yaml
 from argparse import ArgumentParser
-from tqdm import tqdm
-import imageio
 import numpy as np
 from skimage.transform import resize
-from skimage import img_as_ubyte
 import torch
 from sync_batchnorm import DataParallelWithCallback
 from modules.generator import OcclusionAwareGenerator
 from modules.keypoint_detector import KPDetector
 from animate import normalize_kp
-from scipy.spatial import ConvexHull
-import scipy.io as io
 import json
-import cv2
 import time
-import torch.nn.functional as F
+import cv2
+from arithmetic.value_decoder import *
 
-if sys.version_info[0] < 3:
-    raise Exception("You must use Python 3 or higher. Recommended version is Python 3.7")
+def rgb4442yuv420(dir1, dir2):    
+    os.makedirs(dir2,exist_ok=True)
+    files=glob.glob(os.path.join(dir1,'*.rgb'))
+    files.sort()
+    for file in files:  
+        f=open(file,'rb')
+        file_name=file.split('/')[-1]
+        file_name=os.path.splitext(file_name)[0]
+        tar_path=dir2+file_name+'.yuv'
+        yuvfile=open(tar_path, mode='w')
+
+        width=256
+        height=256
+        framenum=250
+        for idx in range(framenum):
+            R=np.fromfile(f,np.uint8,width*height).reshape((height,width))
+            G=np.fromfile(f,np.uint8,width*height).reshape((height,width))   
+            B=np.fromfile(f,np.uint8,width*height).reshape((height,width))
+            image_rgb = np.zeros((height,width,3), 'uint8')
+            image_rgb[..., 0] = R
+            image_rgb[..., 1] = G
+            image_rgb[..., 2] = B
+            image_yuv = cv2.cvtColor(image_rgb, cv2.COLOR_RGB2YUV)
+            image_yuv[:,:,0].tofile(yuvfile)
+            image_yuv[:,:,1].tofile(yuvfile)
+            image_yuv[:,:,2].tofile(yuvfile)
+        
+    print('done')
 
 
 def load_checkpoints(config_path, checkpoint_path, cpu=False):
@@ -58,99 +76,74 @@ def load_checkpoints(config_path, checkpoint_path, cpu=False):
     return generator, kp_detector
 
 
-def make_animation(reference_frame, kp_reference, driving_kp, generator, kp_detector,frame_idx, Qstep, relative=False, adapt_movement_scale=False, cpu=False):
+def make_prediction(reference_frame, kp_reference, kp_current, generator, relative=False, adapt_movement_scale=False, cpu=False):
         
-    txt, i= {}, 1
-    frame_index=''
-    if frame_idx < 10:
-        frame_index+='0'
-    if frame_idx < 100:
-        frame_index+='0'
-    frame_index+=str(frame_idx)
-    txt_save=driving_kp+'/frame'+frame_index+'.txt'
-
-    with open(txt_save,'r+',encoding='utf-8') as f:
-        for line in f:
-            txt[i] = line
-            i += 1
-        dict={}
-        list_value=txt[1]
-        list_value=json.loads(list_value)            
-                
-        device = 'cuda:0'
-        kp_value_list=torch.Tensor(list_value).to(device)
-        kp_value_list=(kp_value_list*1)/Qstep-1               
-        dict['value']=kp_value_list        
-                
-        kp_current=dict    
-
     kp_norm = normalize_kp(kp_source=kp_reference, kp_driving=kp_current,
                                kp_driving_initial=kp_reference, use_relative_movement=relative,
                                use_relative_jacobian=relative, adapt_movement_scale=adapt_movement_scale)
-    out = generator(reference_frame, heatmap_source=kp_reference, heatmap_driving=kp_norm)
+    out = generator(reference_frame, kp_reference, kp_norm)
+    #out = generator(reference_frame, kp_reference, kp_norm, reference_frame, kp_reference)   ## two-reference prediction
     
     prediction=np.transpose(out['prediction'].data.cpu().numpy(), [0, 1, 2, 3])[0]
 
     return prediction
 
 
-def check_reference(reference_frame, current_frame, frame_idx):
-    dif = (reference_frame.astype(np.int16) - current_frame.astype(np.int16))**2
-    mse=np.mean(dif)
-        
-    if mse>400:   
-        return False
-    else:
-        return False
+def check_reference(ref_kp_list, kp_current):
+    diff_list=[]
+    for idx in range(0, len(ref_kp_list)):    
+        dif = (ref_kp_list[idx]['value'] - kp_current['value']).abs().mean()
+        diff_list.append(dif)
+    
+    return diff_list
 
-
-# +
+    
 if __name__ == "__main__":
     parser = ArgumentParser()
-        
-    frames=100
+            
+    modeldir = 'fusion'  
+    config_path='../checkpoint/'+modeldir+'/vox-256.yaml'
+    checkpoint='../checkpoint/'+modeldir+'/00000099-checkpoint.pth.tar'
+    os.makedirs("../experiment/dec/",exist_ok=True)     # the real decoded video
+    generator, kp_detector = load_checkpoints(config_path, checkpoint, cpu=False) 
+
+    frames=250
     width=256
     height=256
     Qstep=16
+    max_ref_num=4
     
-    modelkp = 'spatial'  
-    config_path='/home/yixiubaixue_ex/Face/checkpoint/'+'spatial'+'/vox-256.yaml'
-    checkpoint='/home/yixiubaixue_ex/Face/checkpoint/'+'spatial'+'/00000099-checkpoint.pth.tar'
-
-    os.makedirs("../experiment/dec/",exist_ok=True)     # the real decoded video
+    seqlist=["40", "41", "42", "43", "44", "45", "46", "47", "48", "50", "51", "52"]
+    qplist=["32", "37", "42", "47", "52"]
     
-    seqlist=[ "48" ]
-    qplist=["42"]
-    
-    for seq in seqlist:
-        for QP in qplist:  
-                
-            start=time.time()
-                   
+    totalResult=np.zeros((len(seqlist)+1,len(qplist)))
+    for seqIdx, seq in enumerate(seqlist):
+        for qpIdx, QP in enumerate(qplist):                              
             original_seq='../dataset/'+seq+'_256x256_1_8bit.rgb'
             reference_seq='../vtm/rec/'+seq+'_QP'+str(QP)+'_vtm.rgb'
             driving_kp = '../experiment/kp/'+seq            
             decode_seq="../experiment/dec/"+seq+'_QP'+str(QP)+'.rgb'
             dir_enc = "../experiment/enc/"+seq+'_QP'+str(QP)+'/'
-            os.makedirs(dir_enc,exist_ok=True)     # some original frames to be compressed by vtm  
-                
-            generator, kp_detector = load_checkpoints(config_path, checkpoint, cpu=False) 
-                
+            os.makedirs(dir_enc,exist_ok=True)     # the frames to be compressed by vtm                 
+            
             f_org=open(original_seq,'rb')
             f_dec=open(decode_seq,'w') 
+            ref_rgb_list=[]
+            ref_norm_list=[]
+            ref_kp_list=[]
+            seq_kp_integer=[]
+            
+            start=time.time()           
+            
+            sum_bits = 0
+            for frame_idx in range(0, frames):            
                 
-            for frame_idx in range(0, frames):             
-                frame_idx_str=''
-                if frame_idx < 10:
-                    frame_idx_str+='0'
-                if frame_idx < 100:
-                    frame_idx_str+='0'
-                frame_idx_str += str(frame_idx)
-                              
+                frame_idx_str = str(frame_idx).zfill(4)   
+                
                 img_input=np.fromfile(f_org,np.uint8,3*height*width).reshape((3,height,width))  #RGB
                 
-                if frame_idx in [0]:  
-                    reference_org = img_input
+                if frame_idx in [0]:      # I-frame    
+                    start_I=time.time()    
                     
                     f_temp=open(dir_enc+'frame'+frame_idx_str+'_org.rgb','w')
                     img_input.tofile(f_temp)
@@ -158,45 +151,157 @@ if __name__ == "__main__":
                                        
                     os.system("./vtm/encode.sh "+dir_enc+'frame'+frame_idx_str+" "+QP)   
                     
+                    bin_file=dir_enc+'frame'+frame_idx_str+'.bin'
+                    bits=os.path.getsize(bin_file)*8
+                    sum_bits += bits
+                    
                     f_temp=open(dir_enc+'frame'+frame_idx_str+'_rec.rgb','rb')
-                    img_rec=np.fromfile(f_temp,np.uint8,3*height*width).reshape((3,height,width))           
-                    img_rec.tofile(f_dec)
-                    img_rec = resize(img_rec, (3, height, width))
-                                        
+                    img_rec=np.fromfile(f_temp,np.uint8,3*height*width).reshape((3,height,width))   # 3xHxW RGB         
+                    img_rec.tofile(f_dec) 
+                    
+                    ref_rgb_list.append(img_rec)
+                    
+                    img_rec = resize(img_rec, (3, height, width))    # normlize to 0-1                                      
                     with torch.no_grad(): 
                         reference = torch.tensor(img_rec[np.newaxis].astype(np.float32))
                         reference = reference.cuda()    # require GPU
                         kp_reference = kp_detector(reference) 
+                        ref_norm_list.append(reference)
+                        ref_kp_list.append(kp_reference)
                         
-                elif check_reference(reference_org, img_input, frame_idx):
-                    reference_org = img_input
+                        ###目前熵编码时是基于第一帧的原始图像编码的kp difference
+                        img_input = resize(img_input, (3, height, width))  
+                        cur = torch.tensor(img_input[np.newaxis].astype(np.float32))
+                        cur = cur.cuda()
+                        kp_cur = kp_detector(cur) 
                         
-                    f_temp=open(dir_enc+'frame'+frame_idx_str+'_org.rgb','w')
-                    img_input.tofile(f_temp)
-                    f_temp.close()
-                    
-                    os.system("./vtm/encode.sh "+dir_enc+'frame'+frame_idx_str+" "+QP)   
-                    
-                    f_temp=open(dir_enc+'frame'+frame_idx_str+'_rec.rgb','rb')
-                    img_rec=np.fromfile(f_temp,np.uint8,3*height*width).reshape((3,height,width))           
-                    img_rec.tofile(f_dec)
-                    img_rec = resize(img_rec, (3, height, width))
-                                        
-                    with torch.no_grad(): 
-                        reference = torch.tensor(img_rec[np.newaxis].astype(np.float32))
-                        reference = reference.cuda()    # require GPU
-                        kp_reference = kp_detector(reference)                    
-                    
+                        kp_integer=torch.round((kp_cur['value']+1)*Qstep/1)
+                        kp_integer=kp_integer.int()
+                        kp_integer=kp_integer.tolist()
+                        kp_integer=str(kp_integer)
+                        kp_integer="".join(kp_integer.split())
+                        seq_kp_integer.append(kp_integer)
+                        
+                    end_I=time.time()
+                        
                 else:
-                    prediction = make_animation(reference, kp_reference, driving_kp, generator, kp_detector, frame_idx, Qstep)
-                    pre=(prediction*255).astype(np.uint8)  
-                    pre.tofile(f_dec)
+                    # check whether refresh reference
+                    frame_index=str(frame_idx).zfill(4)
+                    bin_save=driving_kp+'/frame'+frame_index+'.bin'            
+                    kp_dec = final_decoder_expgolomb(bin_save)
+                    kp_difference = data_convert_inverse_expgolomb(kp_dec)
+                        
+                    kp_previous=json.loads(seq_kp_integer[frame_idx-1])
+                    kp_previous= eval('[%s]'%repr(kp_previous).replace('[', '').replace(']', ''))                         
+                    kp_integer=listformat_ori(kp_previous, kp_difference)
+                        
+                    seq_kp_integer.append(kp_integer)
+                        
+                    kp_integer=json.loads(kp_integer)
+                    kp_current_value=torch.Tensor(kp_integer).to('cuda:0')          
+                    kp_current_value=(kp_current_value*1)/Qstep-1  
+                    dict={}
+                    dict['value']=kp_current_value  
+                    kp_current=dict 
+                    
+                    diff_list = check_reference(ref_kp_list, kp_current)
+                                
+                    # reference frame    
+                    #if min(diff_list) > 0.2:                   #  0.2 is good
+                    if False:    
+                        f_temp=open(dir_enc+'frame'+frame_idx_str+'_org.yuv','w')
+                        # wtite ref and cur (rgb444) to file (yuv420)
+                        img_ref = ref_rgb_list[-1]
+                        img_ref = img_ref.transpose(1, 2, 0)    # HxWx3
+                        image_yuv = cv2.cvtColor(img_ref, cv2.COLOR_RGB2YUV)
+                        image_yuv = image_yuv.transpose(2, 0, 1)   # 3xHxW
+                        image_yuv[0,:,:].tofile(f_temp)
+                        image_yuv = image_yuv[:,::2,::2]
+                        image_yuv[1,:,:].tofile(f_temp)
+                        image_yuv[2,:,:].tofile(f_temp)
+                        
+                        img_input_ = img_input.transpose(1, 2, 0)    # HxWx3
+                        image_yuv = cv2.cvtColor(img_input_, cv2.COLOR_RGB2YUV)
+                        image_yuv = image_yuv.transpose(2, 0, 1)   # 3xHxW
+                        image_yuv[0,:,:].tofile(f_temp)
+                        image_yuv = image_yuv[:,::2,::2]
+                        image_yuv[1,:,:].tofile(f_temp)
+                        image_yuv[2,:,:].tofile(f_temp)
+                        f_temp.close()
+                        
+                        qp_pframe = int(QP) - 10                    
+                        os.system("./vtm/encodeCLIC.sh "+dir_enc+'frame'+frame_idx_str+" "+str(qp_pframe)) 
+                        
+                        bin_file=dir_enc+'frame'+frame_idx_str+'.bin'
+                        bits=os.path.getsize(bin_file)*8
+                        sum_bits += bits
+                    
+                        #  read the rec frame (yuv420) and convert to rgb444
+                        f_temp=open(dir_enc+'frame'+frame_idx_str+'_rec.yuv','rb')
+                        img_rec=np.fromfile(f_temp,np.uint8,3*height*width//2)    # skip the refence frame
+                        img_rec_Y = np.fromfile(f_temp,np.uint8,height*width).reshape((height,width))
+                        img_rec_U = np.fromfile(f_temp,np.uint8,height*width//4).reshape((height//2, width//2))
+                        img_rec_V = np.fromfile(f_temp,np.uint8,height*width//4).reshape((height//2, width//2))
+                        img_rec_U=np.repeat(img_rec_U,2,axis=1)
+                        img_rec_U=np.repeat(img_rec_U,2,axis=0)                        
+                        img_rec_V=np.repeat(img_rec_V,2,axis=1)
+                        img_rec_V=np.repeat(img_rec_V,2,axis=0)  
+                        img_rec = np.array([img_rec_Y, img_rec_U, img_rec_V])   # 3xHxW
+                        img_rec = img_rec.transpose(1, 2, 0)    # HxWx3
+                        img_rec = cv2.cvtColor(img_rec, cv2.COLOR_YUV2RGB)
+                        img_rec = img_rec.transpose(2, 0, 1)   # 3xHxW
+                        img_rec.tofile(f_dec)
+                        
+                        if not len(ref_rgb_list) < max_ref_num:
+                            ref_rgb_list.pop(0)
+                            ref_norm_list.pop(0)
+                            ref_kp_list.pop(0)
+                        
+                        ref_rgb_list.append(img_rec) 
+                        
+                        img_rec = resize(img_rec, (3, height, width))                                      
+                        with torch.no_grad(): 
+                            reference = torch.tensor(img_rec[np.newaxis].astype(np.float32))
+                            reference = reference.cuda()    # require GPU
+                            kp_reference = kp_detector(reference)                          
+                            ref_norm_list.append(reference)
+                            ref_kp_list.append(kp_reference)
+                            
+                    # generated frame
+                    else: 
+                        ref_idx = diff_list.index(min(diff_list))
+                        reference = ref_norm_list[ref_idx]
+                        kp_reference = ref_kp_list[ref_idx]
+                        
+                        prediction = make_prediction(reference, kp_reference, kp_current, generator)
+                        pre=(prediction*255).astype(np.uint8)  
+                        pre.tofile(f_dec)                              
+
+                        frame_index=str(frame_idx).zfill(4)
+                        bin_save=driving_kp+'/frame'+frame_index+'.bin'
+                        bits=os.path.getsize(bin_save)*8
+                        sum_bits += bits
                                
             f_org.close()
-            f_dec.close()
-                
+            f_dec.close()     
             end=time.time()
-            print(seq+'_QP'+str(QP)+'.rgb',"success. Time is:%.4f"%(end-start))
-                
+            
+            totalResult[seqIdx][qpIdx]=sum_bits           
+            print(seq+'_QP'+str(QP)+'.rgb',"success. Time is %.4fs. I-frame time is %.4fs. Total bits are %d" %(end-start,end_I-start_I,sum_bits))
+    
+    # summary the bitrate
+    for qp in range(len(qplist)):
+        for seq in range(len(seqlist)):
+            totalResult[-1][qp]+=totalResult[seq][qp]
+        totalResult[-1][qp] /= len(seqlist)
+    
+    print(totalResult)
+    np.set_printoptions(precision=5)
+    totalResult = totalResult/1000
+    seqlength = frames/25
+    totalResult = totalResult/seqlength
+
+    np.savetxt('../experiment/resultBit.txt', totalResult, fmt = '%.5f')
+            
                 
                 

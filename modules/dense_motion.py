@@ -153,7 +153,7 @@ class DenseMotionNetwork(nn.Module):
         return out
     
 
-    def forward(self, source_image,heatmap_source,heatmap_driving):
+    def forward(self, source_image,heatmap_source, heatmap_driving, source_image_more = None, heatmap_source_more = None):
         if self.scale_factor != 1:
             source_image = self.down(source_image)
             

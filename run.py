@@ -43,23 +43,22 @@ if __name__ == "__main__":
     parser = ArgumentParser()
     parser.add_argument("--config", default="./config/vox-256.yaml")
     parser.add_argument("--mode", default="train", choices=["train", "reconstruction", "animate"])
-    parser.add_argument("--log_dir", default='/home/yixiubaixue_ex/Face/train/', help="path to log into")
-    
+    parser.add_argument("--log_dir", default='../checkpoint/', help="path to log into")
     parser.add_argument("--checkpoint", default=None, help="path to checkpoint to restore")
-    parser.add_argument("--device_ids", default="0", type=lambda x: list(map(int, x.split(','))),
-                        help="Names of the devices comma separated.")
+    parser.add_argument("--gpu_num", default=4, help="GPU number")  #CUDA_VISIBLE_DEVICES=0,1,2,3 python run.py --device_ids 0,1,2,3
     parser.add_argument("--verbose", dest="verbose", action="store_true", help="Print model architecture")
     parser.set_defaults(verbose=False)
 
     opt = parser.parse_args()
+    opt.device_ids = list(range(opt.gpu_num))
+    
     with open(opt.config) as f:
         config = yaml.load(f)
 
     if opt.checkpoint is not None:
         log_dir = os.path.join(*os.path.split(opt.checkpoint)[:-1])
     else:
-        log_dir = os.path.join(opt.log_dir, os.path.basename(opt.config).split('.')[0])
-        log_dir += ' ' + strftime("%d_%m_%y_%H.%M.%S", gmtime())
+        log_dir = os.path.join(opt.log_dir, 'test')
 
     generator = OcclusionAwareGenerator(**config['model_params']['generator_params'],
                                         **config['model_params']['common_params'])
@@ -95,9 +94,4 @@ if __name__ == "__main__":
     if opt.mode == 'train':
         print("Training...")
         train(config, generator, discriminator, kp_detector, opt.checkpoint, log_dir, dataset, opt.device_ids)
-    elif opt.mode == 'reconstruction':
-        print("Reconstruction...")
-        reconstruction(config, generator, kp_detector, opt.checkpoint, log_dir, dataset)
-    elif opt.mode == 'animate':
-        print("Animate...")
-        animate(config, generator, kp_detector, opt.checkpoint, log_dir, dataset)
+    

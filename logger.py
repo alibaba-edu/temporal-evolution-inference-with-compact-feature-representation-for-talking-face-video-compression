@@ -40,7 +40,10 @@ class Logger:
         self.log_file.flush()
 
     def visualize_rec(self, inp, out):
-        image = self.visualizer.visualize(inp['driving'], inp['source'], out)
+        if 'source_more' in inp:
+            image = self.visualizer.visualize(inp['driving'], inp['source'], out, inp['source_more'])
+        else:
+            image = self.visualizer.visualize(inp['driving'], inp['source'], out)
         imageio.imsave(os.path.join(self.visualizations_dir, "%s-rec.png" % str(self.epoch).zfill(self.zfill_num)), image)
 
     def save_cpk(self, emergent=False):
@@ -138,7 +141,7 @@ class Visualizer:
                 out.append(self.create_image_column(arg))
         return np.concatenate(out, axis=1)
 
-    def visualize(self, driving, source, out):
+    def visualize(self, driving, source, out, source_more = None):
         images = []
 
         # Source image 
@@ -146,13 +149,18 @@ class Visualizer:
         source = np.transpose(source, [0, 2, 3, 1])
         images.append((source))
         
+        if 'prediction_more' in out:
+            source_more = source_more.data.cpu()
+            source_more = np.transpose(source_more, [0, 2, 3, 1])
+            images.append((source_more))           
+        
         # Driving image 
         driving = driving.data.cpu().numpy()
         driving = np.transpose(driving, [0, 2, 3, 1])
         images.append((driving))        
             
 
-        #Sparse Flow
+        #Sparse motion
         if 'sparse_motion' in out:
             sparseflow = out['sparse_motion'].data.cpu().numpy()
 
@@ -167,7 +175,23 @@ class Visualizer:
             sparse_flow = torch.from_numpy(sparse_flow).type(source.type())  ###.type(dtype=torch.float64)
             sparse_flow = F.interpolate(sparse_flow, size=source.shape[1:3]).numpy()
             sparse_flow = np.transpose(sparse_flow, [0, 2, 3, 1])   
-            images.append(sparse_flow)          
+            images.append(sparse_flow)   
+            
+        if 'sparse_motion_more' in out:
+            sparseflow = out['sparse_motion_more'].data.cpu().numpy()
+
+            bs, h, w, c = sparseflow.shape
+            flow=[]
+            for batch in range(0,bs):
+                sf =flow_to_image(sparseflow[batch:batch+1,:,:,:].reshape(h, w, c))
+                flow.append(sf)
+
+            sparse_flow= np.array(flow)
+            sparse_flow = np.transpose(sparse_flow, [0, 3, 1, 2])
+            sparse_flow = torch.from_numpy(sparse_flow).type(source.type())  ###.type(dtype=torch.float64)
+            sparse_flow = F.interpolate(sparse_flow, size=source.shape[1:3]).numpy()
+            sparse_flow = np.transpose(sparse_flow, [0, 2, 3, 1])   
+            images.append(sparse_flow)       
         
         ### sparse motion deformed image
         if 'sparse_deformed' in out:        
@@ -176,8 +200,13 @@ class Visualizer:
             sparse_deformed = np.transpose(sparse_deformed, [0, 2, 3, 1])
             images.append(sparse_deformed)
 
+        if 'sparse_deformed_more' in out:        
+            sparse_deformed = out['sparse_deformed_more'].data.cpu().repeat(1, 1, 1, 1)
+            sparse_deformed = F.interpolate(sparse_deformed, size=source.shape[1:3]).numpy()
+            sparse_deformed = np.transpose(sparse_deformed, [0, 2, 3, 1])
+            images.append(sparse_deformed)
 
-        #Dense Flow
+        #Dense motion
         if 'deformation' in out:
             denseflow = out['deformation'].data.cpu().numpy()
 
@@ -192,13 +221,34 @@ class Visualizer:
             dense_flow = torch.from_numpy(dense_flow).type(source.type()) 
             dense_flow = F.interpolate(dense_flow, size=source.shape[1:3]).numpy()
             dense_flow = np.transpose(dense_flow, [0, 2, 3, 1])
-            images.append(dense_flow)              
+            images.append(dense_flow) 
+
+        if 'deformation_more' in out:
+            denseflow = out['deformation_more'].data.cpu().numpy()
+
+            bs, h, w, c = denseflow.shape
+            flow=[]
+            for batch in range(0,bs):
+                df =flow_to_image(denseflow[batch:batch+1,:,:,:].reshape(h, w, c))
+                flow.append(df)
+
+            dense_flow= np.array(flow)
+            dense_flow = np.transpose(dense_flow, [0, 3, 1, 2])
+            dense_flow = torch.from_numpy(dense_flow).type(source.type()) 
+            dense_flow = F.interpolate(dense_flow, size=source.shape[1:3]).numpy()
+            dense_flow = np.transpose(dense_flow, [0, 2, 3, 1])
+            images.append(dense_flow) 
             
-        # denseflow Deformed image
+        # Dense motion deformed image
         if 'deformed' in out:
             deformed = out['deformed'].data.cpu().numpy()
             deformed = np.transpose(deformed, [0, 2, 3, 1])
-            images.append(deformed)            
+            images.append(deformed)   
+
+        if 'deformed_more' in out:
+            deformed = out['deformed_more'].data.cpu().numpy()
+            deformed = np.transpose(deformed, [0, 2, 3, 1])
+            images.append(deformed) 
             
         ## Occlusion map
         if 'occlusion_map' in out:
@@ -207,11 +257,27 @@ class Visualizer:
             occlusion_map = np.transpose(occlusion_map, [0, 2, 3, 1])
             images.append(occlusion_map)
 
-        # Driving Result 
+        if 'occlusion_map_more' in out:
+            occlusion_map = out['occlusion_map_more'].data.cpu().repeat(1, 3, 1, 1)
+            occlusion_map = F.interpolate(occlusion_map, size=source.shape[1:3]).numpy()
+            occlusion_map = np.transpose(occlusion_map, [0, 2, 3, 1])
+            images.append(occlusion_map)
+            
+        # Output image
         prediction = out['prediction'].data.cpu().numpy()
         prediction = np.transpose(prediction, [0, 2, 3, 1])
         images.append(prediction)
         
+        if 'prediction_more' in out:
+            prediction_more = out['prediction_more'].data.cpu().numpy()
+            prediction_more = np.transpose(prediction_more, [0, 2, 3, 1])
+            images.append(prediction_more)
+            
+        if 'prediction_fusion' in out:
+            prediction_fusion = out['prediction_fusion'].data.cpu().numpy()
+            prediction_fusion = np.transpose(prediction_fusion, [0, 2, 3, 1])
+            images.append(prediction_fusion)
+            
         
         image = self.create_image_grid(*images)
         image = (255 * image).astype(np.uint8)
