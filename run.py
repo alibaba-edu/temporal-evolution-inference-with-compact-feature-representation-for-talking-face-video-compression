@@ -58,33 +58,30 @@ if __name__ == "__main__":
     if opt.checkpoint is not None:
         log_dir = os.path.join(*os.path.split(opt.checkpoint)[:-1])
     else:
-        log_dir = os.path.join(opt.log_dir, 'test')
+        log_dir = os.path.join(opt.log_dir, 'rep30_fusion_test')
 
-    generator = OcclusionAwareGenerator(**config['model_params']['generator_params'],
-                                        **config['model_params']['common_params'])
+    generator = OcclusionAwareGenerator(**config['model_params']['generator_params'], **config['common_params'])
 
     if torch.cuda.is_available():
         generator.to(opt.device_ids[0])
     if opt.verbose:
-        print(generator)
+        f_model = open('../generator.txt','w')
+        print(generator, file=f_model)
 
-    discriminator = MultiScaleDiscriminator(**config['model_params']['discriminator_params'],
-                                            **config['model_params']['common_params'])
+       
+    discriminator = MultiScaleDiscriminator(**config['model_params']['discriminator_params'], **config['common_params'])
     if torch.cuda.is_available():
         discriminator.to(opt.device_ids[0])
     if opt.verbose:
         print(discriminator)
 
-    kp_detector = KPDetector(**config['model_params']['kp_detector_params'],
-                             **config['model_params']['common_params'])
-
+    kp_detector = KPDetector(**config['model_params']['kp_detector_params'], **config['common_params'])    
     if torch.cuda.is_available():
         kp_detector.to(opt.device_ids[0])
-
     if opt.verbose:
         print(kp_detector)
         
-    dataset = FramesDataset(is_train=(opt.mode == 'train'), **config['dataset_params'])
+    dataset = FramesDataset(is_train=(opt.mode == 'train'), **config['dataset_params'], **config['common_params'])
 
     if not os.path.exists(log_dir):
         os.makedirs(log_dir)

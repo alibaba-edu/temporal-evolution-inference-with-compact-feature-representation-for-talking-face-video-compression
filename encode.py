@@ -49,12 +49,12 @@ def load_checkpoints(config_path, checkpoint_path, cpu=False):
         config = yaml.load(f)
 
     generator = OcclusionAwareGenerator(**config['model_params']['generator_params'],
-                                        **config['model_params']['common_params'])
+                                        **config['common_params'])
     if not cpu:
         generator.cuda()
 
     kp_detector = KPDetector(**config['model_params']['kp_detector_params'],
-                             **config['model_params']['common_params'])
+                             **config['common_params'])
     if not cpu:
         kp_detector.cuda()
     
@@ -81,8 +81,8 @@ def make_prediction(reference_frame, kp_reference, kp_current, generator, relati
     kp_norm = normalize_kp(kp_source=kp_reference, kp_driving=kp_current,
                                kp_driving_initial=kp_reference, use_relative_movement=relative,
                                use_relative_jacobian=relative, adapt_movement_scale=adapt_movement_scale)
-    out = generator(reference_frame, kp_reference, kp_norm)
-    #out = generator(reference_frame, kp_reference, kp_norm, reference_frame, kp_reference)   ## two-reference prediction
+    
+    out = generator(reference_frame, kp_reference, kp_norm, reference_frame, kp_reference)
     
     prediction=np.transpose(out['prediction'].data.cpu().numpy(), [0, 1, 2, 3])[0]
 
@@ -101,9 +101,9 @@ def check_reference(ref_kp_list, kp_current):
 if __name__ == "__main__":
     parser = ArgumentParser()
             
-    modeldir = 'fusion'  
+    modeldir = 'our_dynamic_ref'  
     config_path='../checkpoint/'+modeldir+'/vox-256.yaml'
-    checkpoint='../checkpoint/'+modeldir+'/00000099-checkpoint.pth.tar'
+    checkpoint='../checkpoint/'+modeldir+'/0099-checkpoint.pth.tar'
     os.makedirs("../experiment/dec/",exist_ok=True)     # the real decoded video
     generator, kp_detector = load_checkpoints(config_path, checkpoint, cpu=False) 
 
@@ -113,14 +113,15 @@ if __name__ == "__main__":
     Qstep=16
     max_ref_num=4
     
-    seqlist=["40", "41", "42", "43", "44", "45", "46", "47", "48", "50", "51", "52"]
-    qplist=["32", "37", "42", "47", "52"]
+    #seqlist=["40", "41", "42", "43", "44", "45", "46", "47", "48", "49", "50", "51"]
+    #qplist=["32", "37", "42", "47", "52"]
+    seqlist=["47"]
+    qplist=["42"]
     
     totalResult=np.zeros((len(seqlist)+1,len(qplist)))
     for seqIdx, seq in enumerate(seqlist):
         for qpIdx, QP in enumerate(qplist):                              
             original_seq='../dataset/'+seq+'_256x256_1_8bit.rgb'
-            reference_seq='../vtm/rec/'+seq+'_QP'+str(QP)+'_vtm.rgb'
             driving_kp = '../experiment/kp/'+seq            
             decode_seq="../experiment/dec/"+seq+'_QP'+str(QP)+'.rgb'
             dir_enc = "../experiment/enc/"+seq+'_QP'+str(QP)+'/'
@@ -133,7 +134,8 @@ if __name__ == "__main__":
             ref_kp_list=[]
             seq_kp_integer=[]
             
-            start=time.time()           
+            start=time.time() 
+            gene_time = 0
             
             sum_bits = 0
             for frame_idx in range(0, frames):            
@@ -142,9 +144,7 @@ if __name__ == "__main__":
                 
                 img_input=np.fromfile(f_org,np.uint8,3*height*width).reshape((3,height,width))  #RGB
                 
-                if frame_idx in [0]:      # I-frame    
-                    start_I=time.time()    
-                    
+                if frame_idx in [0]:      # I-frame                        
                     f_temp=open(dir_enc+'frame'+frame_idx_str+'_org.rgb','w')
                     img_input.tofile(f_temp)
                     f_temp.close()
@@ -181,9 +181,7 @@ if __name__ == "__main__":
                         kp_integer=str(kp_integer)
                         kp_integer="".join(kp_integer.split())
                         seq_kp_integer.append(kp_integer)
-                        
-                    end_I=time.time()
-                        
+                                                
                 else:
                     # check whether refresh reference
                     frame_index=str(frame_idx).zfill(4)
@@ -207,8 +205,8 @@ if __name__ == "__main__":
                     diff_list = check_reference(ref_kp_list, kp_current)
                                 
                     # reference frame    
-                    #if min(diff_list) > 0.2:                   #  0.2 is good
-                    if False:    
+                    if min(diff_list) > 0.15:                   #  0.1 , 0.15 , 0.2 
+                        
                         f_temp=open(dir_enc+'frame'+frame_idx_str+'_org.yuv','w')
                         # wtite ref and cur (rgb444) to file (yuv420)
                         img_ref = ref_rgb_list[-1]
@@ -273,7 +271,10 @@ if __name__ == "__main__":
                         reference = ref_norm_list[ref_idx]
                         kp_reference = ref_kp_list[ref_idx]
                         
+                        gene_start = time.time()
                         prediction = make_prediction(reference, kp_reference, kp_current, generator)
+                        gene_end = time.time()
+                        gene_time += gene_end - gene_start
                         pre=(prediction*255).astype(np.uint8)  
                         pre.tofile(f_dec)                              
 
@@ -287,7 +288,7 @@ if __name__ == "__main__":
             end=time.time()
             
             totalResult[seqIdx][qpIdx]=sum_bits           
-            print(seq+'_QP'+str(QP)+'.rgb',"success. Time is %.4fs. I-frame time is %.4fs. Total bits are %d" %(end-start,end_I-start_I,sum_bits))
+            print(seq+'_QP'+str(QP)+'.rgb',"success. Total time is %.4fs. Model inference time is %.4fs. Total bits are %d" %(end-start,gene_time,sum_bits))
     
     # summary the bitrate
     for qp in range(len(qplist)):

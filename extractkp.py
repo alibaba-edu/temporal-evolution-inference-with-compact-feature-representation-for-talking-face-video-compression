@@ -17,7 +17,7 @@ def load_checkpoints(config_path, checkpoint_path, cpu=False):
     with open(config_path) as f:
         config = yaml.load(f)
     kp_detector = KPDetector(**config['model_params']['kp_detector_params'],
-                             **config['model_params']['common_params'])
+                             **config['common_params'])
     if not cpu:
         kp_detector.cuda()
     
@@ -44,14 +44,15 @@ if __name__ == "__main__":
     height=256
     Qstep=16
 
-    modeldir = 'fusion'
+    modeldir = 'our_dynamic_ref'
     config_path='../checkpoint/'+modeldir+'/vox-256.yaml'
-    checkpoint_path='../checkpoint/'+modeldir+'/00000099-checkpoint.pth.tar'
+    checkpoint_path='../checkpoint/'+modeldir+'/0099-checkpoint.pth.tar'
     save_path='../experiment/kp/'
     
     kp_detector = load_checkpoints(config_path, checkpoint_path, cpu=False)
         
-    seqlist=["40", "41", "42", "43", "44", "45", "46", "47", "48", "50", "51", "52"]
+    seqlist=["40", "41", "42", "43", "44", "45", "46", "47", "48", "49", "50", "51"]
+    #seqlist=["47"]
     for seq in seqlist:
         
         start=time.time()

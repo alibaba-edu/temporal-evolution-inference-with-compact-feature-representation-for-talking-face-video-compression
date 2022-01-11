@@ -16,13 +16,14 @@ class OcclusionAwareGenerator(nn.Module):
     """
 
     def __init__(self, num_channels, num_kp, num_ref, block_expansion, max_features, num_down_blocks,
-                 num_bottleneck_blocks, estimate_occlusion_map=False, dense_motion_params=None, estimate_jacobian=False):
+                 num_bottleneck_blocks, fusion_features, num_fusion_blocks, estimate_occlusion_map=False, dense_motion_params=None, estimate_jacobian=False):
         super(OcclusionAwareGenerator, self).__init__()
-
 
         self.temperature = 0.1
         self.num_ref = num_ref
-
+        self.num_channels = num_channels
+        self.estimate_occlusion_map = estimate_occlusion_map
+       
         if dense_motion_params is not None:
             self.dense_motion_network = DenseMotionNetwork(num_kp=num_kp, num_channels=num_channels,
                                                            estimate_occlusion_map=estimate_occlusion_map,
@@ -45,23 +46,23 @@ class OcclusionAwareGenerator(nn.Module):
             out_features = min(max_features, block_expansion * (2 ** (num_down_blocks - i - 1)))
             up_blocks.append(UpBlock2d(in_features, out_features, kernel_size=(3, 3), padding=(1, 1)))
         self.up_blocks = nn.ModuleList(up_blocks)
-        
-        fusion_blocks = []
-        fusion_blocks.append(SameBlock2d(num_channels*2, num_channels, kernel_size=(7, 7), padding=(3, 3)))
-        for i in range(5):
-            fusion_blocks.append(ResBlock2d(num_channels, kernel_size=(5, 5), padding=(2, 2)))        
-        self.fusion_blocks = nn.ModuleList(fusion_blocks)
-        self.fusion_final = nn.Conv2d(num_channels, num_channels, kernel_size=(7, 7), padding=(3, 3))
-        
+
         self.bottleneck = torch.nn.Sequential()
         in_features = min(max_features, block_expansion * (2 ** num_down_blocks))
         for i in range(num_bottleneck_blocks):
             self.bottleneck.add_module('r' + str(i), ResBlock2d(in_features, kernel_size=(3, 3), padding=(1, 1)))
-
+        
         self.final = nn.Conv2d(block_expansion, num_channels, kernel_size=(7, 7), padding=(3, 3))
-        self.estimate_occlusion_map = estimate_occlusion_map
-        self.num_channels = num_channels
-
+        
+        fusion_blocks = []
+        fusion_blocks.append(SameBlock2d(num_channels*2, fusion_features, kernel_size=(7, 7), padding=(3, 3)))
+        for i in range(num_fusion_blocks):
+            fusion_blocks.append(ResBlock2d(fusion_features, kernel_size=(3, 3), padding=(1, 1)))        
+        self.fusion_blocks = nn.ModuleList(fusion_blocks)
+        
+        self.fusion_final = nn.Conv2d(fusion_features, num_channels, kernel_size=(7, 7), padding=(3, 3))
+        
+        
     def deform_input(self, inp, deformation):
         _, h_old, w_old, _ = deformation.shape
         _, _, h, w = inp.shape
@@ -96,7 +97,7 @@ class OcclusionAwareGenerator(nn.Module):
         out = self.deform_input(out, deformation)
         
         # obtain the dense motion and occlusion map of source_image_more
-        if not source_image_more is None:
+        if source_image_more is not None:
             out_more = self.first(source_image_more)
             for i in range(len(self.down_blocks)):
                 out_more = self.down_blocks[i](out_more)
@@ -125,7 +126,7 @@ class OcclusionAwareGenerator(nn.Module):
         out_dense = torch.sigmoid(out_dense)        
         output_dict["deformed"] = out_dense  
         
-        if not source_image_more is None:
+        if source_image_more is not None:
             out_dense_more = self.bottleneck(out_more)
             for i in range(len(self.up_blocks)):
                 out_dense_more = self.up_blocks[i](out_dense_more)
@@ -146,7 +147,7 @@ class OcclusionAwareGenerator(nn.Module):
 
         output_dict["prediction"] = out
         
-        if not source_image_more is None:
+        if source_image_more is not None:
             if out_more.shape[2] != occlusion_map_more.shape[2] or out_more.shape[3] != occlusion_map_more.shape[3]:
                 occlusion_map_more = F.interpolate(occlusion_map_more, size=out_more.shape[2:], mode='bilinear')
             out_more = out_more * occlusion_map_more

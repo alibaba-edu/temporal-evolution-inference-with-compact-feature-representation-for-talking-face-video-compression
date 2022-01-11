@@ -41,18 +41,17 @@ class DenseMotionNetwork(nn.Module):
         self.kp_variance = kp_variance
         self.num_down_blocks=num_down_blocks
 
+        # source_image down-sample
         if self.scale_factor != 1:
             self.down = AntiAliasInterpolation2d(num_channels, self.scale_factor)
         
-        ###heatmap_difference upscale    
+        # keymap up-sample and obtain keymap difference    
         up_blocks = []
         for i in range(num_down_blocks):
             up_blocks.append(UpBlock2d(num_kp, num_kp, kernel_size=(3, 3), padding=(1, 1)))
         self.up_blocks = nn.ModuleList(up_blocks)
      
-    
-        ####sparse motion warp---downscale-->upscale
-        
+        # deform model        
         self.first = SameBlock2d(num_channels, block_expansion, kernel_size=(7, 7), padding=(3, 3))
         
         motiondown_blocks = []
@@ -77,13 +76,7 @@ class DenseMotionNetwork(nn.Module):
         self.final = nn.Conv2d(block_expansion, num_channels, kernel_size=(7, 7), padding=(3, 3))
 
         
-    def create_heatmap_representations(self, source_image, heatmap_driving, heatmap_source):
-        """
-        Eq 6. in the paper H_k(z)
-        8*8 Feature-->upscale-->64*64 Feature---->Feature Difference ####torch.Size([40, 1, 64, 64])
-        """
-
-        #heatmap = heatmap_driving['value']  - heatmap_source['value'] 
+    def create_keymap_difference(self, source_image, heatmap_driving, heatmap_source):       
         bs, _, h, w = source_image.shape
         heatmap_d=heatmap_driving['value']
         heatmap_s=heatmap_source['value'] 
@@ -96,34 +89,30 @@ class DenseMotionNetwork(nn.Module):
         return heatmap
     
 
-       ###Gunnar Farneback算法计算稠密光流 
+       
     def create_sparse_motions(self, source_image, heatmap_driving, heatmap_source):
-        """
-        Eq 4. in the paper T_{s<-d}(z)
-        """      
-
-        #feature map-->img-->sparse motion detecion point p0 and p1     
+        ###Gunnar Farneback算法计算稠密光流      
+        
         heatmap_source_lt = heatmap_source['value'] 
         heatmap_source_lt = heatmap_source_lt.cuda().data.cpu().numpy()         
-        heatmap_source_lt = (heatmap_source_lt - np.min(heatmap_source_lt))/(np.max(heatmap_source_lt) - np.min(heatmap_source_lt)) *255.0  #转为0-255  
-        heatmap_source_lt=np.round(heatmap_source_lt)   #转换数据类型
+        heatmap_source_lt = (heatmap_source_lt - np.min(heatmap_source_lt))/(np.max(heatmap_source_lt) - np.min(heatmap_source_lt)) *255.0  
+        heatmap_source_lt=np.round(heatmap_source_lt)   
         heatmap_source_lt=heatmap_source_lt.astype(np.uint8)
 
         heatmap_driving_lt = heatmap_driving['value']
         heatmap_driving_lt = heatmap_driving_lt.cuda().data.cpu().numpy()         
-        heatmap_driving_lt = (heatmap_driving_lt - np.min(heatmap_driving_lt))/(np.max(heatmap_driving_lt) - np.min(heatmap_driving_lt)) *255.0  #转为0-255  
-        heatmap_driving_lt=np.round(heatmap_driving_lt)   #转换数据类型
+        heatmap_driving_lt = (heatmap_driving_lt - np.min(heatmap_driving_lt))/(np.max(heatmap_driving_lt) - np.min(heatmap_driving_lt)) *255.0 
+        heatmap_driving_lt=np.round(heatmap_driving_lt)   
         heatmap_driving_lt=heatmap_driving_lt.astype(np.uint8)       
         
-        bs, _, h, w = source_image.shape  ##bs=40
+        bs, _, h, w = source_image.shape  
         
         GFflow=[]
         for tensorchannel in range(0,bs):
         
-            heatmap_source_lt11=heatmap_source_lt[tensorchannel].transpose([1,2,0])      #取出其中一张并转换维度
-            heatmap_driving_lt11=heatmap_driving_lt[tensorchannel].transpose([1,2,0])      #取出其中一张并转换维度
-            #flow = cv2.calcOpticalFlowFarneback(heatmap_driving_lt11,heatmap_source_lt11,None, 0.5, 2, 15, 3, 5, 1.2, 0)  ####
-            flow = cv2.calcOpticalFlowFarneback(heatmap_source_lt11,heatmap_driving_lt11,None, 0.5, 2, 15, 3, 5, 1.2, 0)  ####            
+            heatmap_source_lt11=heatmap_source_lt[tensorchannel].transpose([1,2,0])     
+            heatmap_driving_lt11=heatmap_driving_lt[tensorchannel].transpose([1,2,0])      
+            flow = cv2.calcOpticalFlowFarneback(heatmap_source_lt11,heatmap_driving_lt11,None, 0.5, 2, 15, 3, 5, 1.2, 0)            
             GFflow.append(flow)
             
         tmp_flow=torch.Tensor(np.array(GFflow)).to(device)         
@@ -131,24 +120,19 @@ class DenseMotionNetwork(nn.Module):
 
 
     def create_deformed_source_image(self, source_image, sparse_motion):
-        ''' [bs, 3, 64, 64])-->[bs, 64, 64, 64]-->[bs, 128, 32, 32]-->[bs, 256, 16, 16]-->[bs, 512, 8, 8]
-        '''
-        # Encoding (downsampling) part
-
+        
         out = self.first(source_image)  
+        
         for i in range(self.num_down_blocks):
             out = self.motiondown_blocks[i](out) 
         
-        ########
-        # warping
         out=warp(out, sparse_motion)
         
-        # Decoding part
         out = self.bottleneck(out)
+        
         for i in range(self.num_down_blocks):
             out = self.motionup_blocks[i](out)
-        
-        ##deformed image
+
         out = self.final(out)  
         return out
     
@@ -160,31 +144,27 @@ class DenseMotionNetwork(nn.Module):
         bs, c, h, w = source_image.shape   
         out_dict = dict()
         
-        heatmap_representation = self.create_heatmap_representations(source_image, heatmap_driving, heatmap_source)  
-        sparse_motion = self.create_sparse_motions(source_image, heatmap_source, heatmap_driving) 
+        keymap_difference = self.create_keymap_difference(source_image, heatmap_driving, heatmap_source)  # [bs, 1, 4, 4] -> [bs, 1, 64, 64]
+        sparse_motion = self.create_sparse_motions(source_image, heatmap_source, heatmap_driving)   #[bs, 4, 4, 2]
         deformed_source = self.create_deformed_source_image(source_image, sparse_motion)
         
         out_dict['sparse_motion'] = sparse_motion
         out_dict['sparse_deformed'] = deformed_source
         
-        heatmap_representation=heatmap_representation.unsqueeze(1).view(bs,1, -1, h, w)
+        keymap_difference=keymap_difference.unsqueeze(1).view(bs,1, -1, h, w)
         deformed_source=deformed_source.unsqueeze(1).view(bs,1, -1, h, w)
         
-        input =torch.cat([heatmap_representation, deformed_source], dim=2)  #####
-        input = input.view(bs, -1, h, w)   ##([40, 4, 64, 64])
+        input =torch.cat([keymap_difference, deformed_source], dim=2)     # [bs, 4, 64, 64]
+        input = input.view(bs, -1, h, w)   
         
-        prediction = self.hourglass(input)   ##([40, 68, 64, 64])
+        prediction = self.hourglass(input)          # [bs, block_expansion+4, 64, 64]
 
-        ###dense flow
-        deformation=self.flow(prediction)  ##([40, 2, 64, 64])
-        deformation = deformation.permute(0, 2, 3, 1)  ##([40, 64, 64, 2])
-        #print(deformation.shape)  
+        deformation=self.flow(prediction)         
+        deformation = deformation.permute(0, 2, 3, 1)     # [bs, 64, 64, 2]
         out_dict['deformation'] = deformation
         
-        # occulusion map
         if self.occlusion:
-            occlusion_map = torch.sigmoid(self.occlusion(prediction))  ##([40, 1, 64, 64])
-            #print(occlusion_map.shape)  
+            occlusion_map = torch.sigmoid(self.occlusion(prediction))   # [bs, 1, 64, 64] 
             out_dict['occlusion_map'] = occlusion_map        
         
         return out_dict

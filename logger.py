@@ -14,7 +14,7 @@ from flowvisual import *
 
 
 class Logger:
-    def __init__(self, log_dir, checkpoint_freq=100, visualizer_params=None, zfill_num=8, log_file_name='log.txt'):
+    def __init__(self, log_dir, checkpoint_freq=100, visualizer_params=None, zfill_num=4, log_file_name='log.txt'):
 
         self.loss_list = []
         self.cpk_dir = log_dir

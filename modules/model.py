@@ -16,17 +16,17 @@ class GeneratorFullModel(torch.nn.Module):
     Merge all generator related updates into single model for better multi-gpu usage
     """
 
-    def __init__(self, kp_extractor, generator, discriminator, train_params):
+    def __init__(self, kp_extractor, generator, discriminator, train_params, common_params):
         super(GeneratorFullModel, self).__init__()
         self.kp_extractor = kp_extractor
         self.generator = generator
         self.discriminator = discriminator
         self.train_params = train_params
-        self.num_ref = train_params['num_ref']
         self.scale_factor = train_params['scale_factor']
         self.scales = train_params['scales']
         self.temperature =train_params['temperature']
-        self.out_channels =train_params['num_kp']       
+        self.out_channels =common_params['num_kp'] 
+        self.num_ref = common_params['num_ref']
         self.disc_scales = self.discriminator.scales
         
         self.down = AntiAliasInterpolation2d(generator.num_channels, self.scale_factor)    
@@ -75,7 +75,7 @@ class GeneratorFullModel(torch.nn.Module):
                     value = torch.abs(x_vgg[i] - y_vgg[i].detach()).mean()
                     value_total += self.loss_weights['perceptual_initial'][i] * value
             
-            loss_values['perceptual_INITIAL'] = value_total   
+            loss_values['initial'] = value_total   
         
             if self.num_ref > 1:
                 sparse_deformed_generated_more=generated['sparse_deformed_more']  ### [3,64,64]
@@ -90,7 +90,7 @@ class GeneratorFullModel(torch.nn.Module):
                         value = torch.abs(x_vgg[i] - y_vgg[i].detach()).mean()
                         value_total += self.loss_weights['perceptual_initial'][i] * value
                 
-                loss_values['perceptual_INITIAL'] += value_total 
+                loss_values['initial'] += value_total 
                 
         
         ### Perceptual Loss---Final
@@ -104,7 +104,7 @@ class GeneratorFullModel(torch.nn.Module):
                     value = torch.abs(x_vgg[i] - y_vgg[i].detach()).mean()
                     value_total += self.loss_weights['perceptual_final'][i] * value
             
-            loss_values['perceptual_FINAL'] = value_total
+            loss_values['prediction'] = value_total
             
             if self.num_ref > 1:
                 pyramide_generated_more = self.pyramid(generated['prediction_more'])
@@ -119,7 +119,7 @@ class GeneratorFullModel(torch.nn.Module):
                         value = torch.abs(x_vgg[i] - y_vgg[i].detach()).mean()
                         value_total += self.loss_weights['perceptual_final'][i] * value
             
-                loss_values['perceptual_FINAL'] += value_total
+                loss_values['prediction'] += value_total
 
                 value_total = 0
                 for scale in self.scales:
@@ -130,7 +130,7 @@ class GeneratorFullModel(torch.nn.Module):
                         value = torch.abs(x_vgg[i] - y_vgg[i].detach()).mean()
                         value_total += self.loss_weights['perceptual_final'][i] * value
             
-                loss_values['perceptual_Fusion'] = value_total
+                loss_values['fusion'] = value_total
         
               
         ### GAN adversial Loss

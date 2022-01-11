@@ -15,6 +15,7 @@ from frames_dataset import DatasetRepeater
 
 def train(config, generator, discriminator, kp_detector, checkpoint, log_dir, dataset, device_ids):
     train_params = config['train_params']
+    common_params = config['common_params']
 
     optimizer_generator = torch.optim.Adam(generator.parameters(), lr=train_params['lr_generator'], betas=(0.5, 0.999))
     optimizer_discriminator = torch.optim.Adam(discriminator.parameters(), lr=train_params['lr_discriminator'], betas=(0.5, 0.999))
@@ -38,7 +39,7 @@ def train(config, generator, discriminator, kp_detector, checkpoint, log_dir, da
         dataset = DatasetRepeater(dataset, train_params['num_repeats'])
     dataloader = DataLoader(dataset, batch_size=train_params['batch_size'], shuffle=True, num_workers=6, drop_last=True)
 
-    generator_full = GeneratorFullModel(kp_detector, generator, discriminator, train_params)
+    generator_full = GeneratorFullModel(kp_detector, generator, discriminator, train_params, common_params)
     discriminator_full = DiscriminatorFullModel(kp_detector, generator, discriminator, train_params)
 
 

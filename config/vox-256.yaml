@@ -1,6 +1,11 @@
+common_params:
+  num_kp: 1
+  num_ref: 2
+  num_channels: 3
+  estimate_jacobian: False 
+
 dataset_params:
   root_dir:  /mnt/video-standard/Data/VoxCeleb/
-  num_ref: 1
   frame_shape: [256, 256, 3]
   id_sampling: True
   pairs_list: data/vox256.csv
@@ -14,45 +19,40 @@ dataset_params:
       saturation: 0.1
       hue: 0.1
 
-
 model_params:
-  common_params:
-    num_kp: 1
-    num_ref: 1
-    num_channels: 3
-    estimate_jacobian: False 
   kp_detector_params:
-     temperature: 0.1
+     num_blocks: 5
      block_expansion: 32
      max_features:  1024  
      scale_factor: 0.25  
-     num_blocks: 5
+     temperature: 0.1
   generator_params:
     block_expansion: 64
     max_features: 512
     num_down_blocks: 2
     num_bottleneck_blocks: 6
-    estimate_occlusion_map: True ########True
+    fusion_features: 16
+    num_fusion_blocks: 4
+    estimate_occlusion_map: True 
     dense_motion_params:
+      num_blocks: 4
       block_expansion: 64
-      max_features: 1024
+      max_features: 512
       num_down_blocks: 4
-      num_bottleneck_blocks: 6
-      num_blocks: 5
+      num_bottleneck_blocks: 4
       scale_factor: 0.25
   discriminator_params:
     scales: [1]
+    num_blocks: 4
     block_expansion: 32
     max_features: 512
-    num_blocks: 4
+
     sn: True
 
 train_params:
   temperature: 0.1
-  num_kp: 1
-  num_ref: 1
   num_epochs: 100  ######100
-  num_repeats: 75  ########75
+  num_repeats: 30  ########30
   epoch_milestones: [60, 90]
   lr_generator: 2.0e-4
   lr_discriminator: 2.0e-4
@@ -60,7 +60,7 @@ train_params:
   batch_size: 24  ##########
   scales: [1, 0.5, 0.25, 0.125]
   scale_factor: 0.25
-  checkpoint_freq: 10
+  checkpoint_freq: 20
   loss_weights:
     generator_gan: 1  
     discriminator_gan: 1
