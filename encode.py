@@ -111,7 +111,6 @@ if __name__ == "__main__":
     width=256
     height=256
     Qstep=16
-    max_ref_num=4
     
     #seqlist=["40", "41", "42", "43", "44", "45", "46", "47", "48", "49", "50", "51"]
     #qplist=["32", "37", "42", "47", "52"]
@@ -169,7 +168,7 @@ if __name__ == "__main__":
                         ref_norm_list.append(reference)
                         ref_kp_list.append(kp_reference)
                         
-                        ###目前熵编码时是基于第一帧的原始图像编码的kp difference
+                        ###
                         img_input = resize(img_input, (3, height, width))  
                         cur = torch.tensor(img_input[np.newaxis].astype(np.float32))
                         cur = cur.cuda()
@@ -183,7 +182,7 @@ if __name__ == "__main__":
                         seq_kp_integer.append(kp_integer)
                                                 
                 else:
-                    # check whether refresh reference
+                    
                     frame_index=str(frame_idx).zfill(4)
                     bin_save=driving_kp+'/frame'+frame_index+'.bin'            
                     kp_dec = final_decoder_expgolomb(bin_save)
@@ -202,86 +201,22 @@ if __name__ == "__main__":
                     dict['value']=kp_current_value  
                     kp_current=dict 
                     
-                    diff_list = check_reference(ref_kp_list, kp_current)
-                                
-                    # reference frame    
-                    if min(diff_list) > 0.15:                   #  0.1 , 0.15 , 0.2 
-                        
-                        f_temp=open(dir_enc+'frame'+frame_idx_str+'_org.yuv','w')
-                        # wtite ref and cur (rgb444) to file (yuv420)
-                        img_ref = ref_rgb_list[-1]
-                        img_ref = img_ref.transpose(1, 2, 0)    # HxWx3
-                        image_yuv = cv2.cvtColor(img_ref, cv2.COLOR_RGB2YUV)
-                        image_yuv = image_yuv.transpose(2, 0, 1)   # 3xHxW
-                        image_yuv[0,:,:].tofile(f_temp)
-                        image_yuv = image_yuv[:,::2,::2]
-                        image_yuv[1,:,:].tofile(f_temp)
-                        image_yuv[2,:,:].tofile(f_temp)
-                        
-                        img_input_ = img_input.transpose(1, 2, 0)    # HxWx3
-                        image_yuv = cv2.cvtColor(img_input_, cv2.COLOR_RGB2YUV)
-                        image_yuv = image_yuv.transpose(2, 0, 1)   # 3xHxW
-                        image_yuv[0,:,:].tofile(f_temp)
-                        image_yuv = image_yuv[:,::2,::2]
-                        image_yuv[1,:,:].tofile(f_temp)
-                        image_yuv[2,:,:].tofile(f_temp)
-                        f_temp.close()
-                        
-                        qp_pframe = int(QP) - 10                    
-                        os.system("./vtm/encodeCLIC.sh "+dir_enc+'frame'+frame_idx_str+" "+str(qp_pframe)) 
-                        
-                        bin_file=dir_enc+'frame'+frame_idx_str+'.bin'
-                        bits=os.path.getsize(bin_file)*8
-                        sum_bits += bits
                     
-                        #  read the rec frame (yuv420) and convert to rgb444
-                        f_temp=open(dir_enc+'frame'+frame_idx_str+'_rec.yuv','rb')
-                        img_rec=np.fromfile(f_temp,np.uint8,3*height*width//2)    # skip the refence frame
-                        img_rec_Y = np.fromfile(f_temp,np.uint8,height*width).reshape((height,width))
-                        img_rec_U = np.fromfile(f_temp,np.uint8,height*width//4).reshape((height//2, width//2))
-                        img_rec_V = np.fromfile(f_temp,np.uint8,height*width//4).reshape((height//2, width//2))
-                        img_rec_U=np.repeat(img_rec_U,2,axis=1)
-                        img_rec_U=np.repeat(img_rec_U,2,axis=0)                        
-                        img_rec_V=np.repeat(img_rec_V,2,axis=1)
-                        img_rec_V=np.repeat(img_rec_V,2,axis=0)  
-                        img_rec = np.array([img_rec_Y, img_rec_U, img_rec_V])   # 3xHxW
-                        img_rec = img_rec.transpose(1, 2, 0)    # HxWx3
-                        img_rec = cv2.cvtColor(img_rec, cv2.COLOR_YUV2RGB)
-                        img_rec = img_rec.transpose(2, 0, 1)   # 3xHxW
-                        img_rec.tofile(f_dec)
+                    ref_idx = 0
+                    reference = ref_norm_list[ref_idx]
+                    kp_reference = ref_kp_list[ref_idx]
                         
-                        if not len(ref_rgb_list) < max_ref_num:
-                            ref_rgb_list.pop(0)
-                            ref_norm_list.pop(0)
-                            ref_kp_list.pop(0)
-                        
-                        ref_rgb_list.append(img_rec) 
-                        
-                        img_rec = resize(img_rec, (3, height, width))                                      
-                        with torch.no_grad(): 
-                            reference = torch.tensor(img_rec[np.newaxis].astype(np.float32))
-                            reference = reference.cuda()    # require GPU
-                            kp_reference = kp_detector(reference)                          
-                            ref_norm_list.append(reference)
-                            ref_kp_list.append(kp_reference)
-                            
-                    # generated frame
-                    else: 
-                        ref_idx = diff_list.index(min(diff_list))
-                        reference = ref_norm_list[ref_idx]
-                        kp_reference = ref_kp_list[ref_idx]
-                        
-                        gene_start = time.time()
-                        prediction = make_prediction(reference, kp_reference, kp_current, generator)
-                        gene_end = time.time()
-                        gene_time += gene_end - gene_start
-                        pre=(prediction*255).astype(np.uint8)  
-                        pre.tofile(f_dec)                              
+                    gene_start = time.time()
+                    prediction = make_prediction(reference, kp_reference, kp_current, generator)
+                    gene_end = time.time()
+                    gene_time += gene_end - gene_start
+                    pre=(prediction*255).astype(np.uint8)  
+                    pre.tofile(f_dec)                              
 
-                        frame_index=str(frame_idx).zfill(4)
-                        bin_save=driving_kp+'/frame'+frame_index+'.bin'
-                        bits=os.path.getsize(bin_save)*8
-                        sum_bits += bits
+                    frame_index=str(frame_idx).zfill(4)
+                    bin_save=driving_kp+'/frame'+frame_index+'.bin'
+                    bits=os.path.getsize(bin_save)*8
+                    sum_bits += bits
                                
             f_org.close()
             f_dec.close()     
