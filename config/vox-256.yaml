@@ -52,7 +52,7 @@ model_params:
 train_params:
   temperature: 0.1
   num_epochs: 100  ######100
-  num_repeats: 30  ########30
+  num_repeats: 75  ########30
   epoch_milestones: [60, 90]
   lr_generator: 2.0e-4
   lr_discriminator: 2.0e-4

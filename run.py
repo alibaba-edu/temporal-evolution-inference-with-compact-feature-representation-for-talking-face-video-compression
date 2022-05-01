@@ -58,7 +58,7 @@ if __name__ == "__main__":
     if opt.checkpoint is not None:
         log_dir = os.path.join(*os.path.split(opt.checkpoint)[:-1])
     else:
-        log_dir = os.path.join(opt.log_dir, 'rep30_fusion_test')
+        log_dir = os.path.join(opt.log_dir, 'test')
 
     generator = OcclusionAwareGenerator(**config['model_params']['generator_params'], **config['common_params'])
 
