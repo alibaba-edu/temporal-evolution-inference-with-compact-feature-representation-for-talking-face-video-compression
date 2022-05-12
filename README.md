@@ -5,10 +5,14 @@ Video Compression” by Bolin Chen, Zhao Wang, Binzhe Li, Rongqun Lin, Shiqi Wan
 
 The DCC keynote video can be found in https://www.youtube.com/watch?v=7en3YYT1QfU
 
-Training
-python run.py  
-the gup number and save dir can be modified in run.py
+# Training
 
-Inference
-python encode.py  
+python run.py 
+ 
+the gpu number and save dir can be modified in run.py
+
+# Inference
+
+python encode.py 
+ 
 python decode.py
