@@ -42,7 +42,7 @@ if __name__ == "__main__":
     frames=250
     width=256
     height=256
-    Qstep=128
+    Qstep=64
 
     modeldir = 'test'
     config_path='../checkpoint/'+modeldir+'/vox-256.yaml'
