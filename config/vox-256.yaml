@@ -1,7 +1,8 @@
 common_params:
   num_kp: 1
+  scale_factor: 0.25         ## 0.25->4x4  0.5->8x8
   num_ref: 2
-  num_channels: 3
+  num_channels: 3            ## RGB
   estimate_jacobian: False 
 
 dataset_params:
@@ -24,7 +25,6 @@ model_params:
      num_blocks: 5
      block_expansion: 32
      max_features:  1024  
-     scale_factor: 0.25  
      temperature: 0.1
   generator_params:
     block_expansion: 64
@@ -40,27 +40,24 @@ model_params:
       max_features: 512
       num_down_blocks: 4
       num_bottleneck_blocks: 4
-      scale_factor: 0.25
   discriminator_params:
     scales: [1]
     num_blocks: 4
     block_expansion: 32
     max_features: 512
-
     sn: True
 
 train_params:
   temperature: 0.1
   num_epochs: 100  ######100
-  num_repeats: 75  ########30
+  num_repeats: 30  ########30
+  batch_size: 16  ##########
+  checkpoint_freq: 20
   epoch_milestones: [60, 90]
   lr_generator: 2.0e-4
   lr_discriminator: 2.0e-4
   lr_kp_detector: 2.0e-4
-  batch_size: 24  ##########
   scales: [1, 0.5, 0.25, 0.125]
-  scale_factor: 0.25
-  checkpoint_freq: 20
   loss_weights:
     generator_gan: 1  
     discriminator_gan: 1

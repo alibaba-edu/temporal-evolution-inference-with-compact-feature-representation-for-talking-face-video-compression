@@ -223,3 +223,34 @@ def listformat_ori(refframetensor, true_ae_number ):
     latentformat="".join(latentformat.split())
         
     return latentformat
+
+def listformat_adptive(refframetensor, true_ae_number, keymap_channel,keymap_size):    
+    length=keymap_size*keymap_size ##############
+    listnum=keymap_size  ###########
+    slidelist=int(length/listnum)
+    #print(slidelist)
+    ### 第二帧（帧间重建第一帧 based on VVC frame）    
+    reallatentvalue=(np.array(refframetensor)+np.array(true_ae_number)).tolist()
+    #print(len(reallatentvalue))
+    #print(reallatentvalue)
+
+    #按照模型所需格式重组
+    latentformat=[]
+    
+    for channel_size in range(keymap_channel):
+        
+        latentformat_channel=[]
+        for slideformat in range(0,slidelist):
+            latentformatslide=reallatentvalue[slideformat*listnum:(slideformat+1)*listnum]
+            latentformat_channel.extend([latentformatslide])
+        del reallatentvalue[0:length]
+        #latentformat=[[latentformat]]
+        latentformat.extend([latentformat_channel])
+    #print(latentformat)
+    latentformat=[latentformat]
+    
+    ###保存恢复的真实的数据格式
+    latentformat=str(latentformat)
+    latentformat="".join(latentformat.split())
+        
+    return latentformat

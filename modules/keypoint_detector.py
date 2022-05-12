@@ -23,14 +23,13 @@ class KPDetector(nn.Module):
                                    max_features=max_features, num_blocks=num_blocks)
 
         #self.kp = nn.Conv2d(in_channels=self.predictor.out_filters, out_channels=num_kp, kernel_size=(1, 1),padding=pad)
-
         
         self.temperature = temperature
         self.scale_factor = scale_factor
         if self.scale_factor != 1:
             self.down = AntiAliasInterpolation2d(num_channels, self.scale_factor)
 
-            
+    
         ##feature map/heatmap—> latent code (Analysis net)
         self.conv1 = nn.Conv2d(in_channels=self.predictor.out_filters, out_channels=num_kp, kernel_size=(5, 5), stride=2, padding=2)
         torch.nn.init.xavier_normal_(self.conv1.weight.data, (math.sqrt(2 * (3 + num_kp) / (6))))

@@ -162,8 +162,9 @@ class Visualizer:
 
         #Sparse motion
         if 'sparse_motion' in out:
-            sparseflow = out['sparse_motion'].data.cpu().numpy()
-
+            #sparseflow = out['sparse_motion'].data.cpu().numpy()
+            sparseflow = out['sparse_motion'][0].data.cpu().numpy()
+            
             bs, h, w, c = sparseflow.shape
             flow=[]
             for batch in range(0,bs):
@@ -178,7 +179,8 @@ class Visualizer:
             images.append(sparse_flow)   
             
         if 'sparse_motion_more' in out:
-            sparseflow = out['sparse_motion_more'].data.cpu().numpy()
+            #sparseflow = out['sparse_motion_more'].data.cpu().numpy()
+            sparseflow = out['sparse_motion_more'][0].data.cpu().numpy()
 
             bs, h, w, c = sparseflow.shape
             flow=[]
@@ -195,13 +197,15 @@ class Visualizer:
         
         ### sparse motion deformed image
         if 'sparse_deformed' in out:        
-            sparse_deformed = out['sparse_deformed'].data.cpu().repeat(1, 1, 1, 1)
+            #sparse_deformed = out['sparse_deformed'].data.cpu().repeat(1, 1, 1, 1)
+            sparse_deformed = out['sparse_deformed'][:,:,0,:,:].data.cpu().repeat(1, 1, 1, 1)
             sparse_deformed = F.interpolate(sparse_deformed, size=source.shape[1:3]).numpy()
             sparse_deformed = np.transpose(sparse_deformed, [0, 2, 3, 1])
             images.append(sparse_deformed)
 
         if 'sparse_deformed_more' in out:        
-            sparse_deformed = out['sparse_deformed_more'].data.cpu().repeat(1, 1, 1, 1)
+            #sparse_deformed = out['sparse_deformed_more'].data.cpu().repeat(1, 1, 1, 1)
+            sparse_deformed = out['sparse_deformed_more'][:,:,0,:,:].data.cpu().repeat(1, 1, 1, 1)
             sparse_deformed = F.interpolate(sparse_deformed, size=source.shape[1:3]).numpy()
             sparse_deformed = np.transpose(sparse_deformed, [0, 2, 3, 1])
             images.append(sparse_deformed)

@@ -18,6 +18,7 @@ def load_checkpoints(config_path, checkpoint_path, cpu=False):
         config = yaml.load(f)
     kp_detector = KPDetector(**config['model_params']['kp_detector_params'],
                              **config['common_params'])
+        
     if not cpu:
         kp_detector.cuda()
     
@@ -42,17 +43,18 @@ if __name__ == "__main__":
     frames=250
     width=256
     height=256
-    Qstep=64
+    Qstep=16
 
-    modeldir = 'test'
+    modeldir = 'our2021'
     config_path='../checkpoint/'+modeldir+'/vox-256.yaml'
     checkpoint_path='../checkpoint/'+modeldir+'/0099-checkpoint.pth.tar'
-    save_path='../experiment/kp/'
+    save_path='../experiment_cfte/kp/'
     
     kp_detector = load_checkpoints(config_path, checkpoint_path, cpu=False)
-        
-    seqlist=["40", "41", "42", "43", "44", "45", "46", "47", "48", "49", "50", "51"]
-    #seqlist=["47"]
+    
+    #seqlist=['013','019']     
+    seqlist=['001','002','003','004','005','006','007','008','009','010', '011','012','013','014','015','016','017','018','019','020']
+    
     for seq in seqlist:
         
         start=time.time()
@@ -61,7 +63,7 @@ if __name__ == "__main__":
         if not os.path.exists(kp_path):
             os.makedirs(kp_path)
 
-        original_seq='../dataset/'+seq+'_256x256_1_8bit.rgb'   
+        original_seq='../dataset/'+str(seq)+'_'+str(height)+'x'+str(width)+'.rgb' 
         f_org=open(original_seq,'rb')
         
         kp_value_seq = []

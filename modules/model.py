@@ -22,13 +22,13 @@ class GeneratorFullModel(torch.nn.Module):
         self.generator = generator
         self.discriminator = discriminator
         self.train_params = train_params
-        self.scale_factor = train_params['scale_factor']
+        self.out_channels =common_params['num_kp'] 
+        self.scale_factor = common_params['scale_factor']
+        self.num_ref = common_params['num_ref']
         self.scales = train_params['scales']
         self.temperature =train_params['temperature']
-        self.out_channels =common_params['num_kp'] 
-        self.num_ref = common_params['num_ref']
         self.disc_scales = self.discriminator.scales
-        
+               
         self.down = AntiAliasInterpolation2d(generator.num_channels, self.scale_factor)    
             
         self.pyramid = ImagePyramide(self.scales, generator.num_channels)
@@ -61,36 +61,42 @@ class GeneratorFullModel(torch.nn.Module):
 
         driving_image_downsample = self.down(x['driving'])    ### [3,64,64]   
         pyramide_real_downsample = self.pyramid(driving_image_downsample) 
-        sparse_deformed_generated=generated['sparse_deformed']  ### [3,64,64]
-        sparse_pyramide_generated = self.pyramid(sparse_deformed_generated)      
+        #sparse_deformed_generated=generated['sparse_deformed']  ### [3,64,64]
+        #sparse_pyramide_generated = self.pyramid(sparse_deformed_generated)      
         
         ### Perceptual Loss---Initial
         if sum(self.loss_weights['perceptual_initial']) != 0:
-            value_total = 0
-            for scale in [1, 0.5, 0.25]:
-                x_vgg = self.vgg(sparse_pyramide_generated['prediction_' + str(scale)])
-                y_vgg = self.vgg(pyramide_real_downsample['prediction_' + str(scale)])
-
-                for i, weight in enumerate(self.loss_weights['perceptual_initial']):
-                    value = torch.abs(x_vgg[i] - y_vgg[i].detach()).mean()
-                    value_total += self.loss_weights['perceptual_initial'][i] * value
             
-            loss_values['initial'] = value_total   
-        
-            if self.num_ref > 1:
-                sparse_deformed_generated_more=generated['sparse_deformed_more']  ### [3,64,64]
-                sparse_pyramide_generated_more = self.pyramid(sparse_deformed_generated_more)           
-
+            loss_values['initial'] = 0 
+            for kpchannel in range(self.out_channels):
+                bs,_,h,w=driving_image_downsample.shape
+                sparse_deformed_generated=generated['sparse_deformed'][:,:,kpchannel,:,:].view(bs, -1, h, w)
+                sparse_pyramide_generated = self.pyramid(sparse_deformed_generated) 
+                
                 value_total = 0
                 for scale in [1, 0.5, 0.25]:
-                    x_vgg = self.vgg(sparse_pyramide_generated_more['prediction_' + str(scale)])
+                    x_vgg = self.vgg(sparse_pyramide_generated['prediction_' + str(scale)])
                     y_vgg = self.vgg(pyramide_real_downsample['prediction_' + str(scale)])
 
                     for i, weight in enumerate(self.loss_weights['perceptual_initial']):
                         value = torch.abs(x_vgg[i] - y_vgg[i].detach()).mean()
                         value_total += self.loss_weights['perceptual_initial'][i] * value
+                    
+                if self.num_ref > 1:
+                    sparse_deformed_generated_more=generated['sparse_deformed_more'][:,:,kpchannel,:,:].view(bs, -1, h, w)  ### [3,64,64]
+                    sparse_pyramide_generated_more = self.pyramid(sparse_deformed_generated_more)           
+            
+                    for scale in [1, 0.5, 0.25]:
+                        x_vgg = self.vgg(sparse_pyramide_generated_more['prediction_' + str(scale)])
+                        y_vgg = self.vgg(pyramide_real_downsample['prediction_' + str(scale)])
+
+                        for i, weight in enumerate(self.loss_weights['perceptual_initial']):
+                            value = torch.abs(x_vgg[i] - y_vgg[i].detach()).mean()
+                            value_total += self.loss_weights['perceptual_initial'][i] * value
                 
                 loss_values['initial'] += value_total 
+            
+            loss_values['initial'] /= self.out_channels
                 
         
         ### Perceptual Loss---Final

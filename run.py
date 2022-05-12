@@ -45,6 +45,7 @@ if __name__ == "__main__":
     parser.add_argument("--mode", default="train", choices=["train", "reconstruction", "animate"])
     parser.add_argument("--log_dir", default='../checkpoint/', help="path to log into")
     parser.add_argument("--checkpoint", default=None, help="path to checkpoint to restore")
+    #parser.add_argument("--checkpoint", default='../checkpoint/our_5x4x4/0039-checkpoint.pth.tar', help="path to checkpoint to restore")
     parser.add_argument("--gpu_num", default=4, help="GPU number")  #CUDA_VISIBLE_DEVICES=0,1,2,3 python run.py --device_ids 0,1,2,3
     parser.add_argument("--verbose", dest="verbose", action="store_true", help="Print model architecture")
     parser.set_defaults(verbose=False)
@@ -58,7 +59,8 @@ if __name__ == "__main__":
     if opt.checkpoint is not None:
         log_dir = os.path.join(*os.path.split(opt.checkpoint)[:-1])
     else:
-        log_dir = os.path.join(opt.log_dir, 'test')
+        log_dir = os.path.join(opt.log_dir, 'our2021')
+        
 
     generator = OcclusionAwareGenerator(**config['model_params']['generator_params'], **config['common_params'])
 

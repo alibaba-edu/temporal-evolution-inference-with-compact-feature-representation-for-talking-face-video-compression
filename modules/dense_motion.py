@@ -26,7 +26,7 @@ class DenseMotionNetwork(nn.Module):
                  estimate_occlusion_map=False,scale_factor=1, kp_variance=0.01):
         
         super(DenseMotionNetwork, self).__init__()
-        self.hourglass = Hourglass(block_expansion=block_expansion, in_features= num_channels + 1,
+        self.hourglass = Hourglass(block_expansion=block_expansion, in_features = num_kp*(num_channels + 1),
                                    max_features=max_features, num_blocks=num_blocks)
 
         self.flow = nn.Conv2d(self.hourglass.out_filters, 2, kernel_size=(7, 7), padding=(3, 3))
@@ -40,7 +40,7 @@ class DenseMotionNetwork(nn.Module):
         self.scale_factor = scale_factor
         self.kp_variance = kp_variance
         self.num_down_blocks=num_down_blocks
-
+        
         # source_image down-sample
         if self.scale_factor != 1:
             self.down = AntiAliasInterpolation2d(num_channels, self.scale_factor)
@@ -105,18 +105,23 @@ class DenseMotionNetwork(nn.Module):
         heatmap_driving_lt=np.round(heatmap_driving_lt)   
         heatmap_driving_lt=heatmap_driving_lt.astype(np.uint8)       
         
-        bs, _, h, w = source_image.shape  
+        bs, num_channel, h, w = heatmap_source_lt.shape  
         
         GFflow=[]
-        for tensorchannel in range(0,bs):
-        
-            heatmap_source_lt11=heatmap_source_lt[tensorchannel].transpose([1,2,0])     
-            heatmap_driving_lt11=heatmap_driving_lt[tensorchannel].transpose([1,2,0])      
-            flow = cv2.calcOpticalFlowFarneback(heatmap_source_lt11,heatmap_driving_lt11,None, 0.5, 2, 15, 3, 5, 1.2, 0)            
-            GFflow.append(flow)
+        for idx in range(0, num_channel):
+            heatmap_source_lt_tmp = heatmap_source_lt[:,idx:idx+1,:,:]
+            heatmap_driving_lt_tmp = heatmap_driving_lt[:,idx:idx+1,:,:]
             
-        tmp_flow=torch.Tensor(np.array(GFflow)).to(device)         
-        return tmp_flow    
+            singleflow=[]         
+            for tensorchannel in range(0,bs):
+                heatmap_source_lt11=heatmap_source_lt_tmp[tensorchannel].transpose([1,2,0])     
+                heatmap_driving_lt11=heatmap_driving_lt_tmp[tensorchannel].transpose([1,2,0])      
+                flow = cv2.calcOpticalFlowFarneback(heatmap_source_lt11,heatmap_driving_lt11,None, 0.5, 2, 15, 3, 5, 1.2, 0)            
+                singleflow.append(flow)
+            
+            GFflow.append(torch.Tensor(np.array(singleflow)).to(device))
+                    
+        return GFflow    
 
 
     def create_deformed_source_image(self, source_image, sparse_motion):
@@ -126,15 +131,22 @@ class DenseMotionNetwork(nn.Module):
         for i in range(self.num_down_blocks):
             out = self.motiondown_blocks[i](out) 
         
-        out=warp(out, sparse_motion)
+        sm_numchannel=len(sparse_motion)
+        bs, numchannel, h, w = source_image.shape
         
-        out = self.bottleneck(out)
+        outdeform=[]
+        for idx in range(0,sm_numchannel):
+            out_tmp=warp(out, sparse_motion[idx])
+            out_tmp = self.bottleneck(out_tmp)
+            for i in range(self.num_down_blocks):
+                out_tmp = self.motionup_blocks[i](out_tmp)
+            
+            out_tmp = self.final(out_tmp)
+            outdeform.append(out_tmp)
         
-        for i in range(self.num_down_blocks):
-            out = self.motionup_blocks[i](out)
-
-        out = self.final(out)  
-        return out
+        final_tensor=torch.stack(outdeform).view((bs, numchannel,sm_numchannel, h, w)) 
+ 
+        return final_tensor
     
 
     def forward(self, source_image,heatmap_source, heatmap_driving, source_image_more = None, heatmap_source_more = None):
@@ -150,6 +162,7 @@ class DenseMotionNetwork(nn.Module):
         
         out_dict['sparse_motion'] = sparse_motion
         out_dict['sparse_deformed'] = deformed_source
+        #out_dict['sparse_deformed_new'] = outdeform
         
         keymap_difference=keymap_difference.unsqueeze(1).view(bs,1, -1, h, w)
         deformed_source=deformed_source.unsqueeze(1).view(bs,1, -1, h, w)

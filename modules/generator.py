@@ -15,7 +15,7 @@ class OcclusionAwareGenerator(nn.Module):
     induced by keypoints. Generator follows Johnson architecture.
     """
 
-    def __init__(self, num_channels, num_kp, num_ref, block_expansion, max_features, num_down_blocks,
+    def __init__(self, num_channels, num_kp, scale_factor, num_ref, block_expansion, max_features, num_down_blocks,
                  num_bottleneck_blocks, fusion_features, num_fusion_blocks, estimate_occlusion_map=False, dense_motion_params=None, estimate_jacobian=False):
         super(OcclusionAwareGenerator, self).__init__()
 
@@ -25,7 +25,7 @@ class OcclusionAwareGenerator(nn.Module):
         self.estimate_occlusion_map = estimate_occlusion_map
        
         if dense_motion_params is not None:
-            self.dense_motion_network = DenseMotionNetwork(num_kp=num_kp, num_channels=num_channels,
+            self.dense_motion_network = DenseMotionNetwork(num_kp=num_kp, scale_factor=scale_factor, num_channels=num_channels,
                                                            estimate_occlusion_map=estimate_occlusion_map,
                                                            **dense_motion_params)
         else:
@@ -91,6 +91,9 @@ class OcclusionAwareGenerator(nn.Module):
         deformed_sparse_source = dense_motion['sparse_deformed'] #64*64*3
         output_dict['sparse_deformed'] = deformed_sparse_source
         
+        #deformed_sparse_source_new = dense_motion['sparse_deformed_new']
+        #output_dict['sparse_deformed_new'] = deformed_sparse_source_new
+        
         sparse_motion = dense_motion['sparse_motion']  ###4*4*2
         output_dict['sparse_motion'] = sparse_motion
 
@@ -112,6 +115,9 @@ class OcclusionAwareGenerator(nn.Module):
         
             deformed_sparse_source_more = dense_motion_more['sparse_deformed'] #64*64*3
             output_dict['sparse_deformed_more'] = deformed_sparse_source_more
+            
+            #deformed_sparse_source_new_more = dense_motion_more['sparse_deformed_new']
+            #output_dict['sparse_deformed_new_more'] = deformed_sparse_source_new_more
         
             sparse_motion_more = dense_motion_more['sparse_motion']  ###4*4*2
             output_dict['sparse_motion_more'] = sparse_motion_more

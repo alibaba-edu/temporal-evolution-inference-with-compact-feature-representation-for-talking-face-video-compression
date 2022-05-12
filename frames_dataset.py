@@ -61,7 +61,7 @@ class FramesDataset(Dataset):
       - folder with all frames
     """
 
-    def __init__(self, root_dir, num_kp, num_ref, num_channels, estimate_jacobian=False, frame_shape=(256, 256, 3), id_sampling=False, is_train=True, random_seed=0, pairs_list=None, augmentation_params=None):
+    def __init__(self, root_dir, num_kp, scale_factor, num_ref, num_channels, estimate_jacobian=False, frame_shape=(256, 256, 3), id_sampling=False, is_train=True, random_seed=0, pairs_list=None, augmentation_params=None):
         self.root_dir = root_dir
         self.num_ref = num_ref
         self.videos = os.listdir(root_dir)
