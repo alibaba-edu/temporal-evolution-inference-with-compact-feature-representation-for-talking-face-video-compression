@@ -111,8 +111,8 @@ if __name__ == "__main__":
     frames=250
     width=256
     height=256
-    Qstep=16
-    max_ref_num=4
+    Qstep=64
+    max_ref_num=1
     
     with open(config_path) as f:
         config = yaml.load(f)      
@@ -209,7 +209,7 @@ if __name__ == "__main__":
                     diff_list = check_reference(ref_kp_list, kp_current)
                                 
                     # reference frame    
-                    if min(diff_list) > 0.2:                   #  0.1 , 0.15 , 0.2 
+                    if min(diff_list) > 10000:                   #  0.1 , 0.15 , 0.2 
                         
                         f_temp=open(dir_enc+'frame'+frame_idx_str+'_org.yuv','w')
                         # wtite ref and cur (rgb444) to file (yuv420)
