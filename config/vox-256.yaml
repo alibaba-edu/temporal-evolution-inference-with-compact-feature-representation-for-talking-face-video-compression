@@ -50,7 +50,7 @@ model_params:
 train_params:
   temperature: 0.1
   num_epochs: 100  ######100
-  num_repeats: 30  ########30
+  num_repeats: 75  ########30
   batch_size: 16  ##########
   checkpoint_freq: 20
   epoch_milestones: [60, 90]
